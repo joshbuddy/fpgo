@@ -30,7 +30,7 @@ http {
         server unix:/tmp/nginx.socket fail_timeout=0;
     }
 
-    root /app/build/;
+    root /app/;
 
     server {
         listen <%= ENV["PORT"] %>;
