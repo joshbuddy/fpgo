@@ -39,10 +39,6 @@ http {
 
         resolver 9.9.9.9 1.1.1.1;
 
-        if ($http_x_forwarded_proto != "https") {
-          return 301 https://$host$request_uri;
-        }
-
         location @404 {
             return 404;
         }
