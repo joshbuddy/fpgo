@@ -1,0 +1,190 @@
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>fpgo</title>
+  <style type="text/css">
+
+#board {
+  border: 1px solid black;
+  margin: 10px;
+  height: 400px;
+  width: 400px;
+}
+
+  </style>
+<body>
+  <canvas id="board" width=400 height=400>
+  </canvas>
+  <div id="position"></div>
+</body>
+<script>
+  const moveSize = 500
+  const canvas = document.getElementById('board')
+  const positionDisplay = document.getElementById('position')
+  const context = canvas.getContext('2d')
+
+  context.fillStyle = "rgba(133,94,66,0.9)"
+  context.fillRect(0,0,400,400)
+
+  const rect = canvas.getBoundingClientRect()
+  var currentPlayer = 0
+  let position = null
+  let clicked = false
+  let originalImageData = context.getImageData(0, 0, 400, 400)
+  let groupData = new Uint8ClampedArray(400 * 400)
+
+  canvas.addEventListener('mousemove', (e) => {
+    var rect = canvas.getBoundingClientRect();
+    position = [
+      e.clientX - rect.left,
+      e.clientY - rect.top
+    ]
+  })
+
+  canvas.addEventListener('mousedown', (e) => {
+    clicked = true
+  })
+
+  canvas.addEventListener('mouseout', (e) => {
+    position = null
+  })
+
+  const isAlpha = (data, p) => {
+    const i = (p[0] * 4 + p[1] * 400 * 4)
+    return data[i + 3] != 255
+  }
+
+  const findPixel = (searchArray, p) => {
+    for (let i = 0; i != searchArray.length; i++) {
+      let a = searchArray[i]
+      if (a[0] === p[0] && a[1] === p[1]) return i
+    }
+    return -1
+  }
+
+  const pDist = (center, p) => {
+    const px = center[0] - p[0]
+    const py = center[1] - p[1]
+    return px * px + py * py
+  }
+
+  const updateGroupData = () => {
+    groupData.fill(0)
+    const data = originalImageData.data.slice()
+    let groupIndex = 1
+    for (let i = 0; i !== groupData.length; i++) {
+      let otherGroupNumber = []
+      let p = [i % 400, Math.floor(i / 400)]
+      if (isAlpha(data, p)) continue
+
+      if (i > 0 && groupData[i-1] && data[i * 4] === data[(i - 1) * 4]) otherGroupNumber.push(groupData[i-1])
+      if (i >= 400 && groupData[i - 400] && data[i * 4] === data[(i - 400) * 4]) otherGroupNumber.push(groupData[i-400])
+      switch (otherGroupNumber.length) {
+        case 0:
+          groupData[i] = groupIndex
+          groupIndex++
+          break
+        case 1:
+          groupData[i] = otherGroupNumber[0]
+          break
+        case 2:
+          const target = Math.max(...otherGroupNumber)
+          const replacement = Math.min(...otherGroupNumber)
+          if (target !== replacement) {
+            for (let j = 0; j !== groupData.length; j++) {
+              if (groupData[j] === target) groupData[j] = replacement
+            }
+          }
+          groupData[i] = replacement
+      }
+    }
+    const libertyCounts = {}
+    const groupSizes = {}
+    for (let i = 1; i !== groupIndex; i++) {
+      libertyCounts[i] = 0
+      groupSizes[i] = 0
+    }
+    for (let i = 0; i !== groupData.length; i++) {
+      if (!groupData[i]) continue
+      const groupId = groupData[i]
+      groupSizes[groupId]++
+      const x = i % 400
+      const y = Math.floor(i / 400)
+      if (x !== 0) libertyCounts[groupId] += groupData[i - 1] === 0 ? 1 : 0
+      if (x !== 399) libertyCounts[groupId] += groupData[i + 1] === 0 ? 1 : 0
+      if (y !== 0) libertyCounts[groupId] += groupData[i - 400] === 0 ? 1 : 0
+      if (y !== 399) libertyCounts[groupId] += groupData[i + 400] === 0 ? 1 : 0
+    }
+    const pairs = Object.keys(groupSizes).map((key) => [Number(key), groupSizes[key]]).filter(pair => groupSizes[pair[0]]).sort(pair => -pair[1])
+    console.log(pairs)
+    for (let i = 0; i !== pairs.length; i++) {
+      const pair = pairs[i]
+      const groupId = pair[0]
+      const libertyCount = libertyCounts[groupId]
+      if (libertyCount === 0) {
+        for (let j = 0; j !== groupData.length; j++) {
+          if (groupData[j] === groupId) {
+            originalImageData.data[j * 4] = 133
+            originalImageData.data[j * 4 + 1] = 94
+            originalImageData.data[j * 4 + 2] = 66
+            originalImageData.data[j * 4 + 3] = 240
+          }
+        }
+        context.putImageData(originalImageData, 0,0)
+        return updateGroupData()
+      }
+    }
+  }
+
+  const calculateMove = () => {
+    const data = originalImageData.data.slice()
+    if (position) {
+      let ink = moveSize
+      let candidatePixels = [position]
+      while (ink !== 0) {
+        let targetPixelIndex = null
+        if (candidatePixels.length === 1) {
+          targetPixelIndex = 0
+        } else {
+          let sortedPixels = candidatePixels.filter(p => isAlpha(data, p))
+          targetPixelIndex = sortedPixels.length === 0 ? -1 : findPixel(candidatePixels, sortedPixels[0])
+        }
+        if (targetPixelIndex == -1) break
+        const targetPixel = candidatePixels[targetPixelIndex]
+        const index = (targetPixel[0] + targetPixel[1] * 400) * 4
+        data[index] = currentPlayer === 0 ? 0 : 255
+        data[index + 1] = currentPlayer === 0 ? 0 : 255
+        data[index + 2] = currentPlayer === 0 ? 0 : 255
+        data[index + 3] = 255
+        for (let i = -1; i <= 1; i++) {
+          for (let j = -1; j <= 1; j++) {
+            let p = [targetPixel[0] + i, targetPixel[1] + j]
+            if (p[0] < 0 || p[0] >= 400 || p[1] < 0 || p[1] >= 400) continue
+            if (findPixel(candidatePixels, p) === -1 && isAlpha(data, p)) candidatePixels.push(p)
+          }
+        }
+        candidatePixels = candidatePixels.slice(0, targetPixelIndex).concat(candidatePixels.slice(targetPixelIndex + 1)).sort((p1, p2) => pDist(position, p1) - pDist(position, p2) )
+        ink--
+      }
+    }
+    context.putImageData(new ImageData(data, 400, 400), 0,0)
+    if (clicked) {
+      currentPlayer = currentPlayer === 0 ? 1 :0
+      originalImageData = context.getImageData(0, 0, 400, 400)
+      clicked = false
+      updateGroupData()
+    }
+  }
+
+  const loop = () => {
+    calculateMove()
+    if (position) {
+      positionDisplay.innerHTML = position
+    //} else {
+      //console.log(position)
+    }
+    window.requestAnimationFrame(loop)
+  }
+  window.requestAnimationFrame(loop)
+</script>
+</html>
