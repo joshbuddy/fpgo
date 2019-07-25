@@ -11,14 +11,16 @@
 
   </style>
 <body>
+  <div style="float: left;">
+    <canvas id="board" width=600 height=600>
+    </canvas>
+    <div id="position"></div>
+    <div id="prisoners"></div>
+  </div>
   <h1>floating point go</h1>
   <p><a href="https://github.com/joshbuddy/fpgo">https://github.com/joshbuddy/fpgo</a></p>
   <p><b>Use cursor keys or mouse to position stone.</b></p>
   <p>Stones play one stone's worth (on a 19x19 board) of pixels from the point selected.</p>
-  <canvas id="board" width=600 height=600>
-  </canvas>
-  <div id="position"></div>
-  <div id="prisoners"></div>
 </body>
 <script>
   const canvas = document.getElementById('board')
@@ -32,7 +34,6 @@
   context.fillStyle = "rgba(133,94,66,0.9)"
   context.fillRect(0,0,dimension,dimension)
 
-  const rect = canvas.getBoundingClientRect()
   const groupData = new Uint8ClampedArray(dimension * dimension)
   const prisoners = [0, 0]
   const playedColors = [[0,0,0], [255,255,255]]
@@ -46,10 +47,7 @@
 
   canvas.addEventListener('mousemove', (e) => {
     var rect = canvas.getBoundingClientRect();
-    position = [
-      e.clientX - rect.left,
-      e.clientY - rect.top
-    ]
+    position = [e.offsetX, e.offsetY]
   })
 
   document.addEventListener('keydown', (e) => {
@@ -70,6 +68,9 @@
       case 40:
         if (position[1] === dimension - 1) return
         position = [position[0], position[1] + 1]
+        break
+      case 13:
+        clicked = true
         break
     }
   })
@@ -206,6 +207,10 @@
       candidatePixels = candidatePixels.slice(0, targetPixelIndex).concat(candidatePixels.slice(targetPixelIndex + 1)).sort((p1, p2) => pDist(position, p1) - pDist(position, p2) )
       ink--
     }
+    if (ink === moveSize) {
+      clicked = false
+      return
+    }
     if (!clicked) {
       candidatePixels = [position]
       while(true) {
@@ -237,8 +242,6 @@
     prisonersDisplay.innerHTML = `black: ${prisoners[0]} white: ${prisoners[1]}`
     if (position) {
       positionDisplay.innerHTML = position
-    //} else {
-      //console.log(position)
     }
     window.requestAnimationFrame(loop)
   }
