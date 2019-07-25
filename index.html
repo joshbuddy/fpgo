@@ -5,33 +5,44 @@
   <style type="text/css">
 
 #board {
-  border: 1px solid black;
   margin: 10px;
-  height: 400px;
-  width: 400px;
+  cursor: crosshair;
 }
 
   </style>
 <body>
-  <canvas id="board" width=400 height=400>
+  <h1>floating point go</h1>
+  <p><a href="https://github.com/joshbuddy/fpgo">https://github.com/joshbuddy/fpgo</a></p>
+  <p><b>Use cursor keys or mouse to position stone.</b></p>
+  <p>Stones play one stone's worth (on a 19x19 board) of pixels from the point selected.</p>
+  <canvas id="board" width=600 height=600>
   </canvas>
   <div id="position"></div>
+  <div id="prisoners"></div>
 </body>
 <script>
-  const moveSize = 500
   const canvas = document.getElementById('board')
   const positionDisplay = document.getElementById('position')
+  const prisonersDisplay = document.getElementById('prisoners')
   const context = canvas.getContext('2d')
 
+  const dimension = canvas.height
+  const moveSize = Math.floor(dimension * dimension * (1/(19 * 19)))
+
   context.fillStyle = "rgba(133,94,66,0.9)"
-  context.fillRect(0,0,400,400)
+  context.fillRect(0,0,dimension,dimension)
 
   const rect = canvas.getBoundingClientRect()
-  var currentPlayer = 0
+  const groupData = new Uint8ClampedArray(dimension * dimension)
+  const prisoners = [0, 0]
+  const playedColors = [[0,0,0], [255,255,255]]
+  const attentionColors = [[100,50,100], [200,200,255]]
+  const searchDirections = [[1, 0], [-1,0], [0,1], [0,-1]]
+  let currentPlayer = 0
   let position = null
   let clicked = false
-  let originalImageData = context.getImageData(0, 0, 400, 400)
-  let groupData = new Uint8ClampedArray(400 * 400)
+  let originalImageData = context.getImageData(0, 0, dimension, dimension)
+
 
   canvas.addEventListener('mousemove', (e) => {
     var rect = canvas.getBoundingClientRect();
@@ -39,6 +50,28 @@
       e.clientX - rect.left,
       e.clientY - rect.top
     ]
+  })
+
+  document.addEventListener('keydown', (e) => {
+    if (!position) return
+    switch (e.keyCode) {
+      case 37:
+        if (position[0] === 0) return
+        position = [position[0] - 1, position[1]]
+        break
+      case 38:
+        if (position[1] === 0) return
+        position = [position[0], position[1] - 1]
+        break
+      case 39:
+        if (position[0] === dimension - 1) return
+        position = [position[0] + 1, position[1]]
+        break
+      case 40:
+        if (position[1] === dimension - 1) return
+        position = [position[0], position[1] + 1]
+        break
+    }
   })
 
   canvas.addEventListener('mousedown', (e) => {
@@ -50,8 +83,13 @@
   })
 
   const isAlpha = (data, p) => {
-    const i = (p[0] * 4 + p[1] * 400 * 4)
-    return data[i + 3] != 255
+    const i = (p[0] * 4 + p[1] * dimension * 4)
+    return data[i + 3] !== 255
+  }
+
+  const isCurrentPlayer = (data, p) => {
+    const i = (p[0] * 4 + p[1] * dimension * 4)
+    return data[i + 3] === 255 && data[i] === playedColors[currentPlayer][0]
   }
 
   const findPixel = (searchArray, p) => {
@@ -74,11 +112,11 @@
     let groupIndex = 1
     for (let i = 0; i !== groupData.length; i++) {
       let otherGroupNumber = []
-      let p = [i % 400, Math.floor(i / 400)]
+      let p = [i % dimension, Math.floor(i / dimension)]
       if (isAlpha(data, p)) continue
 
       if (i > 0 && groupData[i-1] && data[i * 4] === data[(i - 1) * 4]) otherGroupNumber.push(groupData[i-1])
-      if (i >= 400 && groupData[i - 400] && data[i * 4] === data[(i - 400) * 4]) otherGroupNumber.push(groupData[i-400])
+      if (i >= dimension && groupData[i - dimension] && data[i * 4] === data[(i - dimension) * 4]) otherGroupNumber.push(groupData[i - dimension])
       switch (otherGroupNumber.length) {
         case 0:
           groupData[i] = groupIndex
@@ -108,22 +146,28 @@
       if (!groupData[i]) continue
       const groupId = groupData[i]
       groupSizes[groupId]++
-      const x = i % 400
-      const y = Math.floor(i / 400)
+      const x = i % dimension
+      const y = Math.floor(i / dimension)
       if (x !== 0) libertyCounts[groupId] += groupData[i - 1] === 0 ? 1 : 0
       if (x !== 399) libertyCounts[groupId] += groupData[i + 1] === 0 ? 1 : 0
-      if (y !== 0) libertyCounts[groupId] += groupData[i - 400] === 0 ? 1 : 0
-      if (y !== 399) libertyCounts[groupId] += groupData[i + 400] === 0 ? 1 : 0
+      if (y !== 0) libertyCounts[groupId] += groupData[i - dimension] === 0 ? 1 : 0
+      if (y !== 399) libertyCounts[groupId] += groupData[i + dimension] === 0 ? 1 : 0
     }
     const pairs = Object.keys(groupSizes).map((key) => [Number(key), groupSizes[key]]).filter(pair => groupSizes[pair[0]]).sort(pair => -pair[1])
-    console.log(pairs)
     for (let i = 0; i !== pairs.length; i++) {
       const pair = pairs[i]
       const groupId = pair[0]
+      const groupSize = pair[1]
+      let prisonersAdded = false
       const libertyCount = libertyCounts[groupId]
       if (libertyCount === 0) {
         for (let j = 0; j !== groupData.length; j++) {
           if (groupData[j] === groupId) {
+            if (!prisonersAdded) {
+              prisoners[originalImageData.data[j * 4] === 0 ? 1 : 0] += groupSize
+              prisonersAdded = true
+            }
+
             originalImageData.data[j * 4] = 133
             originalImageData.data[j * 4 + 1] = 94
             originalImageData.data[j * 4 + 2] = 66
@@ -138,39 +182,51 @@
 
   const calculateMove = () => {
     const data = originalImageData.data.slice()
-    if (position) {
-      let ink = moveSize
-      let candidatePixels = [position]
-      while (ink !== 0) {
-        let targetPixelIndex = null
-        if (candidatePixels.length === 1) {
-          targetPixelIndex = 0
-        } else {
-          let sortedPixels = candidatePixels.filter(p => isAlpha(data, p))
-          targetPixelIndex = sortedPixels.length === 0 ? -1 : findPixel(candidatePixels, sortedPixels[0])
-        }
-        if (targetPixelIndex == -1) break
-        const targetPixel = candidatePixels[targetPixelIndex]
-        const index = (targetPixel[0] + targetPixel[1] * 400) * 4
-        data[index] = currentPlayer === 0 ? 0 : 255
-        data[index + 1] = currentPlayer === 0 ? 0 : 255
-        data[index + 2] = currentPlayer === 0 ? 0 : 255
+    const colors = clicked ? playedColors[currentPlayer] : attentionColors[currentPlayer]
+    if (!position) return
+
+    let ink = moveSize
+    let candidatePixels = [position]
+    while (ink !== 0) {
+      let targetPixelIndex = null
+      let sortedPixels = candidatePixels.filter(p => isAlpha(data, p))
+      targetPixelIndex = sortedPixels.length === 0 ? -1 : findPixel(candidatePixels, sortedPixels[0])
+      if (targetPixelIndex == -1) break
+      const targetPixel = candidatePixels[targetPixelIndex]
+      const index = (targetPixel[0] + targetPixel[1] * dimension) * 4
+      data[index] = playedColors[currentPlayer][0]
+      data[index + 1] = playedColors[currentPlayer][1]
+      data[index + 2] = playedColors[currentPlayer][2]
+      data[index + 3] = 255
+      searchDirections.forEach(pd => {
+        let p = [targetPixel[0] + pd[0], targetPixel[1] + pd[1]]
+        if (p[0] < 0 || p[0] >= dimension || p[1] < 0 || p[1] >= dimension) return
+        if (findPixel(candidatePixels, p) === -1 && isAlpha(data, p)) candidatePixels.push(p)
+      })
+      candidatePixels = candidatePixels.slice(0, targetPixelIndex).concat(candidatePixels.slice(targetPixelIndex + 1)).sort((p1, p2) => pDist(position, p1) - pDist(position, p2) )
+      ink--
+    }
+    if (!clicked) {
+      candidatePixels = [position]
+      while(true) {
+        if (candidatePixels.length === 0) break
+        const targetPixel = candidatePixels.shift()
+        const index = (targetPixel[0] + targetPixel[1] * dimension) * 4
+        data[index] = colors[0]
+        data[index + 1] = colors[1]
+        data[index + 2] = colors[2]
         data[index + 3] = 255
-        for (let i = -1; i <= 1; i++) {
-          for (let j = -1; j <= 1; j++) {
-            let p = [targetPixel[0] + i, targetPixel[1] + j]
-            if (p[0] < 0 || p[0] >= 400 || p[1] < 0 || p[1] >= 400) continue
-            if (findPixel(candidatePixels, p) === -1 && isAlpha(data, p)) candidatePixels.push(p)
-          }
-        }
-        candidatePixels = candidatePixels.slice(0, targetPixelIndex).concat(candidatePixels.slice(targetPixelIndex + 1)).sort((p1, p2) => pDist(position, p1) - pDist(position, p2) )
-        ink--
+        searchDirections.forEach(pd => {
+          let p = [targetPixel[0] + pd[0], targetPixel[1] + pd[1]]
+          if (p[0] < 0 || p[0] >= dimension || p[1] < 0 || p[1] >= dimension) return
+          if (findPixel(candidatePixels, p) === -1 && isCurrentPlayer(data, p)) candidatePixels.push(p)
+        })
       }
     }
-    context.putImageData(new ImageData(data, 400, 400), 0,0)
+    context.putImageData(new ImageData(data, dimension, dimension), 0,0)
     if (clicked) {
       currentPlayer = currentPlayer === 0 ? 1 :0
-      originalImageData = context.getImageData(0, 0, 400, 400)
+      originalImageData = context.getImageData(0, 0, dimension, dimension)
       clicked = false
       updateGroupData()
     }
@@ -178,6 +234,7 @@
 
   const loop = () => {
     calculateMove()
+    prisonersDisplay.innerHTML = `black: ${prisoners[0]} white: ${prisoners[1]}`
     if (position) {
       positionDisplay.innerHTML = position
     //} else {
